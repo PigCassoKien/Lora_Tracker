@@ -21,34 +21,57 @@ SPI_HandleTypeDef hspi1;
 #define SX1278_REG_FIFO_ADDR_PTR 0x0D
 #define SX1278_REG_FIFO_TX_BASE_ADDR 0x0E
 #define SX1278_REG_PAYLOAD_LENGTH 0x22
+#define SX1278_REG_MODEM_CONFIG_2 0x1D
+#define SX1278_REG_PREAMBLE_MSB 0x20
+#define SX1278_REG_PREAMBLE_LSB 0x21
+#define SX1278_REG_SYNC_WORD 0x39
 
-float centerLat = 21.123456; // Tọa độ trung tâm trang trại
-float centerLon = 105.654321;
-float radius = 0.5; // Bán kính geofencing (km)
+// Định nghĩa 4 điểm tọa độ của hàng rào ảo (hình chữ nhật)
+float rectLat1 = 21.123000; // Góc 1: vĩ độ
+float rectLon1 = 105.654000; // Góc 1: kinh độ
+float rectLat2 = 21.123000; // Góc 2: vĩ độ
+float rectLon2 = 105.655000; // Góc 2: kinh độ
+float rectLat3 = 21.124000; // Góc 3: vĩ độ
+float rectLon3 = 105.655000; // Góc 3: kinh độ
+float rectLat4 = 21.124000; // Góc 4: vĩ độ
+float rectLon4 = 105.654000; // Góc 4: kinh độ
+
 uint8_t gpsBuffer[100];
 uint8_t gpsIndex = 0;
 uint8_t byte;
+uint8_t isOutsideFence = 0; // Trạng thái: 0 = trong hàng rào, 1 = ngoài hàng rào
+uint32_t lastSendTime = 0; // Thời gian gửi lần cuối (ms)
+#define SEND_INTERVAL 30000 // 30 giây
 
-/* Haversine formula */
-float haversine(float lat1, float lon1, float lat2, float lon2) {
-  float R = 6371; // Bán kính Trái Đất (km)
-  float dLat = (lat2 - lat1) * M_PI / 180.0;
-  float dLon = (lon2 - lon1) * M_PI / 180.0;
-  lat1 = lat1 * M_PI / 180.0;
-  lat2 = lat2 * M_PI / 180.0;
-  float a = sin(dLat/2) * sin(dLat/2) + cos(lat1) * cos(lat2) * sin(dLon/2) * sin(dLon/2);
-  float c = 2 * atan2(sqrt(a), sqrt(1-a));
-  return R * c;
+/* Dataframe structure */
+typedef struct {
+    uint8_t dev_id;
+    uint32_t timestamp;
+    float latitude;
+    float longitude;
+    uint8_t checksum;
+} DataFrame;
+
+/* Kiểm tra tọa độ có nằm trong hình chữ nhật không */
+int isInsideRectangle(float lat, float lon) {
+    float minLat = fmin(fmin(rectLat1, rectLat2), fmin(rectLat3, rectLat4));
+    float maxLat = fmax(fmax(rectLat1, rectLat2), fmax(rectLat3, rectLat4));
+    float minLon = fmin(fmin(rectLon1, rectLon2), fmin(rectLon3, rectLon4));
+    float maxLon = fmax(fmax(rectLon1, rectLon2), fmax(rectLon3, rectLon4));
+
+    return (lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon);
 }
 
 /* Parse NMEA GPGGA sentence */
-int parseGPGGA(char *sentence, float *lat, float *lon) {
+int parseGPGGA(char *sentence, float *lat, float *lon, uint32_t *timestamp) {
   char *token = strtok(sentence, ",");
   int field = 0;
   char latDir, lonDir;
   float latDeg, lonDeg;
+  char timeStr[10];
 
   while (token != NULL) {
+    if (field == 1) strncpy(timeStr, token, 10); // UTC Time
     if (field == 2) latDeg = atof(token); // Latitude
     if (field == 3) latDir = token[0];   // N/S
     if (field == 4) lonDeg = atof(token); // Longitude
@@ -63,6 +86,12 @@ int parseGPGGA(char *sentence, float *lat, float *lon) {
   if (latDir == 'S') *lat = -(*lat);
   *lon = (int)(lonDeg / 100) + (lonDeg - (int)(lonDeg / 100) * 100) / 60.0;
   if (lonDir == 'W') *lon = -(*lon);
+
+  // Convert UTC time to UNIX timestamp (simplified, assumes date is current)
+  int hours = atoi(timeStr) / 10000;
+  int minutes = (atoi(timeStr) % 10000) / 100;
+  int seconds = atoi(timeStr) % 100;
+  *timestamp = hours * 3600 + minutes * 60 + seconds + 1717587397; // Offset from a known date
   return 1;
 }
 
@@ -96,8 +125,8 @@ void sx1278_init(SPI_HandleTypeDef *hspi) {
   HAL_SPI_Transmit(hspi, data, 2, 100);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
 
-  // Frequency: 920 MHz
-  uint64_t frf = ((uint64_t)920000000 << 19) / 32000000;
+  // Frequency: 433 MHz
+  uint64_t frf = ((uint64_t)433000000 << 19) / 32000000;
   uint8_t frf_msb = (frf >> 16) & 0xFF;
   uint8_t frf_mid = (frf >> 8) & 0xFF;
   uint8_t frf_lsb = frf & 0xFF;
@@ -110,6 +139,22 @@ void sx1278_init(SPI_HandleTypeDef *hspi) {
   // Power: Max
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
   HAL_SPI_Transmit(hspi, (uint8_t[]){SX1278_REG_PA_CONFIG, 0x7F}, 2, 100);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+
+  // Spreading Factor: SF12, CR4/5
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+  HAL_SPI_Transmit(hspi, (uint8_t[]){SX1278_REG_MODEM_CONFIG_2, 0xC0}, 2, 100); // SF12, CR=4/5
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+
+  // Preamble length: 8 symbols
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+  HAL_SPI_Transmit(hspi, (uint8_t[]){SX1278_REG_PREAMBLE_MSB, 0x00}, 2, 100);
+  HAL_SPI_Transmit(hspi, (uint8_t[]){SX1278_REG_PREAMBLE_LSB, 0x08}, 2, 100);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+
+  // Sync Word: 0x12
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+  HAL_SPI_Transmit(hspi, (uint8_t[]){SX1278_REG_SYNC_WORD, 0x12}, 2, 100);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
 }
 
@@ -278,6 +323,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   }
 }
 
+/* Send DataFrame */
+void sendDataFrame(float lat, float lon, uint32_t timestamp) {
+    DataFrame df;
+    df.dev_id = 0x02; // Example device ID
+    df.timestamp = timestamp;
+    df.latitude = lat;
+    df.longitude = lon;
+    df.checksum = 0;
+    // Calculate checksum (XOR of first 13 bytes)
+    for (int i = 0; i < 13; i++) {
+        df.checksum ^= ((uint8_t*)&df)[i];
+    }
+    sx1278_send(&hspi1, (uint8_t*)&df, sizeof(df));
+}
+
+/* UART Receive Callback */
 /* UART Receive Callback */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART1) {
@@ -286,12 +347,23 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
       if (byte == '\n' && gpsIndex > 0 && strstr((char*)gpsBuffer, "$GPGGA")) {
         gpsBuffer[gpsIndex] = '\0';
         float lat, lon;
-        if (parseGPGGA((char*)gpsBuffer, &lat, &lon)) {
-          float distance = haversine(lat, lon, centerLat, centerLon);
-          if (distance > radius) {
-            char payload[20];
-            snprintf(payload, sizeof(payload), "%.6f,%.6f", lat, lon);
-            sx1278_send(&hspi1, (uint8_t*)payload, strlen(payload));
+        uint32_t timestamp;
+        if (parseGPGGA((char*)gpsBuffer, &lat, &lon, &timestamp)) {
+          if (!isInsideRectangle(lat, lon)) {
+            // Con bò ra ngoài hàng rào
+            if (!isOutsideFence) {
+              // Lần đầu ra ngoài, gửi ngay lập tức
+              sendDataFrame(lat, lon, timestamp);
+              isOutsideFence = 1;
+              lastSendTime = HAL_GetTick();
+            } else if (HAL_GetTick() - lastSendTime >= SEND_INTERVAL) {
+              // Gửi lại sau mỗi 30 giây nếu vẫn ở ngoài
+              sendDataFrame(lat, lon, timestamp);
+              lastSendTime = HAL_GetTick();
+            }
+          } else {
+            // Con bò trong hàng rào
+            isOutsideFence = 0;
           }
         }
         gpsIndex = 0;

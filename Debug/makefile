@@ -62,7 +62,7 @@ main-build: LoRa_Tracker.elf secondary-outputs
 
 # Tool invocations
 LoRa_Tracker.elf LoRa_Tracker.map: $(OBJS) $(USER_OBJS) C:\Users\ADMIN\STM32CubeIDE\workspace_1.18.1\LoRa_Tracker\STM32F103C8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "LoRa_Tracker.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"C:\Users\ADMIN\STM32CubeIDE\workspace_1.18.1\LoRa_Tracker\STM32F103C8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="LoRa_Tracker.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+	arm-none-eabi-gcc -o "LoRa_Tracker.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"C:\Users\ADMIN\STM32CubeIDE\workspace_1.18.1\LoRa_Tracker\STM32F103C8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="LoRa_Tracker.map" -Wl,--gc-sections -static -u _printf_float --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
