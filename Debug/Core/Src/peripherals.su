@@ -1,0 +1,7 @@
+../Core/Src/peripherals.c:3:6:MX_UART1_MspInit	32	static
+../Core/Src/peripherals.c:19:6:MX_I2C1_MspInit	32	static
+../Core/Src/peripherals.c:31:6:MX_SPI1_MspInit	32	static
+../Core/Src/peripherals.c:43:6:MX_USART1_UART_Init	8	static
+../Core/Src/peripherals.c:54:6:MX_I2C1_Init	8	static
+../Core/Src/peripherals.c:63:6:MX_SPI1_Init	8	static
+../Core/Src/peripherals.c:76:6:HAL_GPIO_EXTI_Callback	16	static

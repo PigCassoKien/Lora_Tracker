@@ -1,0 +1,2 @@
+../Core/Src/system_config.c:3:6:SystemClock_Config	1
+../Core/Src/system_config.c:24:6:MX_GPIO_Init	1

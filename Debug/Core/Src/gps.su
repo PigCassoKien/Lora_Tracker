@@ -1,0 +1,4 @@
+../Core/Src/gps.c:20:5:isInsideRectangle	48	static
+../Core/Src/gps.c:29:5:parseGPGGA	80	static
+../Core/Src/gps.c:60:6:sendDataFrame	48	static
+../Core/Src/gps.c:73:6:HAL_UART_RxCpltCallback	32	static

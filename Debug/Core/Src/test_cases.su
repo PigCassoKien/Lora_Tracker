@@ -1,0 +1,2 @@
+../Core/Src/test_cases.c:43:6:initializeTestCases	24	static
+../Core/Src/test_cases.c:53:6:sendTestCase	16	static

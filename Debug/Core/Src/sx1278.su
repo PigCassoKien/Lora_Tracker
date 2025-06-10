@@ -1,0 +1,2 @@
+../Core/Src/sx1278.c:3:6:sx1278_init	64	static
+../Core/Src/sx1278.c:49:6:sx1278_send	56	static
